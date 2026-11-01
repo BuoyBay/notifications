@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "name": "notifications",
+  "version": "0.1.0",
+  "description": "Explicit macOS notification authorization, scheduling and cancellation",
+  "platforms": [
+    "arm64-apple-macos",
+    "x86_64-apple-macos"
+  ],
+  "libraries": [
+    {
+      "libName": "buoy_notifications",
+      "system": false
+    }
+  ]
+}

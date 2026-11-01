@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "inputs": {
+    "native/bridge.m": "d3753deb62c9ccab06a9265a9532194dca79fb96b0a375d652a7ac0d432d1852",
+    "build_native.py": "2383c09ae63e0257ab41af87ae3a4b92e46970c44c3103e7f382360eddadea5c"
+  },
+  "outputs": {
+    "runtime/arm64-apple-macos/libbuoy_notifications.dylib": "23a5f3566483539f3d672b943883a0dbb50252c10637636bd2178e668f05901a",
+    "runtime/x86_64-apple-macos/libbuoy_notifications.dylib": "23a5f3566483539f3d672b943883a0dbb50252c10637636bd2178e668f05901a"
+  }
+}

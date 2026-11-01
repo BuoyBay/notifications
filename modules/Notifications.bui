@@ -1,0 +1,199 @@
+Public Enum NotificationOutcome As Integer
+    Pending = 0
+    Succeeded = 1
+    Denied = 2
+    Failed = 3
+End Enum
+
+#If TargetMac Then
+    Private Delegate Sub NativeNotificationCompletion(context As Ptr, outcome As Int32, code As Integer, message As Ptr)
+    Private Declare Function NativeForeground Lib "buoy_notifications" Alias "buoy_notifications_foreground" (alerts As Int32, sounds As Int32, badges As Int32) As Int32
+    Private Declare Function NativeSupported Lib "buoy_notifications" Alias "buoy_notifications_supported" () As Int32
+    Private Declare Sub NativeAuthorize Lib "buoy_notifications" Alias "buoy_notifications_authorize" (alerts As Int32, sounds As Int32, badges As Int32, completion As NativeNotificationCompletion, context As Ptr)
+    Private Declare Sub NativeStatus Lib "buoy_notifications" Alias "buoy_notifications_status" (completion As NativeNotificationCompletion, context As Ptr)
+    Private Declare Sub NativeSchedule Lib "buoy_notifications" Alias "buoy_notifications_schedule" (identifier As String, title As String, body As String, delay As Double, sound As Int32, completion As NativeNotificationCompletion, context As Ptr)
+    Private Declare Function NativeCancel Lib "buoy_notifications" Alias "buoy_notifications_cancel" (identifier As String, delivered As Int32) As Int32
+#End If
+
+Public Function NotificationsSupported() As Boolean
+    #If TargetMac Then
+        Return NativeSupported() <> 0 And Not Application.IsHeadless
+    #Else
+        Return False
+    #End If
+End Function
+
+''' Opt-in foreground presentation. Refuses to replace a delegate installed by another integration.
+Public Sub ConfigureForegroundNotifications(alerts As Boolean, sounds As Boolean = False, badges As Boolean = False)
+    RequireNotifications()
+    #If TargetMac Then
+        Dim wantsAlerts As Int32 = 0
+        Dim wantsSounds As Int32 = 0
+        Dim wantsBadges As Int32 = 0
+        If alerts Then wantsAlerts = 1
+        If sounds Then wantsSounds = 1
+        If badges Then wantsBadges = 1
+        Dim status As Integer = NativeForeground(wantsAlerts, wantsSounds, wantsBadges)
+        If status = -4 Then Throw New InvalidArgumentException("Foreground notification configuration requires the main thread")
+        If status = -3 Then Throw New InvalidArgumentException("Another notification delegate is already installed")
+        If status <> 0 Then Throw New UnsupportedOperationException("Could not configure foreground notifications")
+    #End If
+End Sub
+
+Private Sub RequireNotifications()
+    If Not NotificationsSupported() Then Throw New UnsupportedOperationException("Notifications require an identified macOS app bundle")
+End Sub
+
+Private Sub ValidateIdentifier(identifier As String)
+    If String.Trim(identifier) = "" Or String.IndexOf(identifier, String.Chr(0)) >= 0 Then Throw New InvalidArgumentException("A nonempty notification identifier without NUL is required")
+End Sub
+
+Public Sub CancelPendingNotification(identifier As String)
+    ValidateIdentifier(identifier)
+    RequireNotifications()
+    #If TargetMac Then
+        If NativeCancel(identifier, 0) <> 0 Then Throw New UnsupportedOperationException("Could not cancel the notification request")
+    #End If
+End Sub
+
+Public Sub RemoveDeliveredNotification(identifier As String)
+    ValidateIdentifier(identifier)
+    RequireNotifications()
+    #If TargetMac Then
+        If NativeCancel(identifier, 1) <> 0 Then Throw New UnsupportedOperationException("Could not remove the delivered notification")
+    #End If
+End Sub
+
+''' A pollable asynchronous result. Authorization and delivery are never requested implicitly.
+Public Class NotificationRequest
+    Private Property Finished As Atomic = New Atomic(0)
+    Private Property CancelRequested As Atomic = New Atomic(0)
+    Private Property KeepAlive As NotificationRequest = Nil
+    Private Property Kind As String
+    Private Property Identifier As String
+    Private Property NativeOutcome As NotificationOutcome = NotificationOutcome.Pending
+    Private Property NativeCode As Integer = 0
+    Private Property NativeMessage As String
+
+    Private Sub Constructor(kind As String, identifier As String = "")
+        Me.Kind = kind
+        Me.Identifier = identifier
+    End Sub
+
+    Public Property IsComplete As Boolean
+        Get
+            Return Me.Finished.Load() <> 0
+        End Get
+    End Property
+    Public Property Outcome As NotificationOutcome
+        Get
+            If Not Me.IsComplete Then Return NotificationOutcome.Pending
+            Return Me.NativeOutcome
+        End Get
+    End Property
+    Public Property ErrorCode As Integer
+        Get
+            If Not Me.IsComplete Or Me.NativeOutcome <> NotificationOutcome.Failed Then Return 0
+            Return Me.NativeCode
+        End Get
+    End Property
+    Public Property ErrorMessage As String
+        Get
+            If Not Me.IsComplete Then Return ""
+            Return Me.NativeMessage
+        End Get
+    End Property
+    ''' Apple UNAuthorizationStatus: 0 not determined, 1 denied, 2 authorized, 3 provisional.
+    Public Property AuthorizationStatus As Integer
+        Get
+            If Me.Kind <> "status" Or Not Me.IsComplete Or Me.NativeOutcome <> NotificationOutcome.Succeeded Then Return -1
+            Return Me.NativeCode
+        End Get
+    End Property
+    Public Property CancellationRequested As Boolean
+        Get
+            Return Me.CancelRequested.Load() <> 0
+        End Get
+    End Property
+
+    ''' Does not prompt. Poll the returned request before reading AuthorizationStatus.
+    Public Shared Function ReadAuthorization() As NotificationRequest
+        RequireNotifications()
+        Dim operation As New NotificationRequest("status")
+        operation.KeepAlive = operation
+        #If TargetMac Then
+            NativeStatus(AddressOf CompleteNativeWrapper, CType(operation, Ptr))
+        #End If
+        Return operation
+    End Function
+
+    ''' Explicit opt-in: may display the system permission prompt.
+    Public Shared Function RequestAuthorization(alerts As Boolean = True, sounds As Boolean = True, badges As Boolean = False) As NotificationRequest
+        RequireNotifications()
+        If Not alerts And Not sounds And Not badges Then Throw New InvalidArgumentException("Select at least one authorization option")
+        Dim operation As New NotificationRequest("authorize")
+        operation.KeepAlive = operation
+        #If TargetMac Then
+            Dim wantsAlerts As Int32 = 0
+            Dim wantsSounds As Int32 = 0
+            Dim wantsBadges As Int32 = 0
+            If alerts Then wantsAlerts = 1
+            If sounds Then wantsSounds = 1
+            If badges Then wantsBadges = 1
+            NativeAuthorize(wantsAlerts, wantsSounds, wantsBadges, AddressOf CompleteNativeWrapper, CType(operation, Ptr))
+        #End If
+        Return operation
+    End Function
+
+    ''' Successful completion means accepted for scheduling, not that Focus/OS policy displayed it.
+    Public Shared Function Schedule(identifier As String, title As String, body As String, delaySeconds As Double = 1.0, sound As Boolean = False) As NotificationRequest
+        ValidateIdentifier(identifier)
+        If String.Trim(title) = "" Then Throw New InvalidArgumentException("Notification title is required")
+        If String.IndexOf(title, String.Chr(0)) >= 0 Or String.IndexOf(body, String.Chr(0)) >= 0 Then Throw New InvalidArgumentException("Notification text cannot contain NUL")
+        If delaySeconds <> delaySeconds Or delaySeconds < 1.0 Or delaySeconds > 31536000.0 Then Throw New InvalidArgumentException("Delay must be 1 second through 1 year")
+        RequireNotifications()
+        Dim operation As New NotificationRequest("schedule", identifier)
+        operation.KeepAlive = operation
+        #If TargetMac Then
+            Dim wantsSound As Int32 = 0
+            If sound Then wantsSound = 1
+            NativeSchedule(identifier, title, body, delaySeconds, wantsSound, AddressOf CompleteNativeWrapper, CType(operation, Ptr))
+        #End If
+        Return operation
+    End Function
+
+    ''' Cancel scheduling now or as soon as an in-flight add is accepted. Authorization prompts cannot be cancelled here.
+    Public Sub Cancel()
+        If Me.Kind <> "schedule" Then Throw New InvalidArgumentException("Only a scheduled notification request can be cancelled")
+        Me.CancelRequested.Store(1)
+        If Me.IsComplete And Me.NativeOutcome = NotificationOutcome.Succeeded Then CancelPendingNotification(Me.Identifier)
+    End Sub
+
+    #If TargetMac Then
+        Public Shared Sub AcceptNativeCompletion(context As Ptr, outcome As Int32, code As Integer, message As Ptr)
+            Dim operation As NotificationRequest = CType(context, NotificationRequest)
+            Try
+                Dim nativeState As Integer = outcome
+                operation.NativeOutcome = CType(nativeState, NotificationOutcome)
+                operation.NativeCode = code
+                If message <> Nil Then operation.NativeMessage = CType(CType(message, CString), String)
+                operation.Finished.Store(1)
+                If operation.CancelRequested.Load() <> 0 And operation.Kind = "schedule" And operation.NativeOutcome = NotificationOutcome.Succeeded Then
+                    NativeCancel(operation.Identifier, 0)
+                End If
+            Catch e As Exception
+                operation.NativeOutcome = NotificationOutcome.Failed
+                operation.NativeMessage = "Could not decode notification completion"
+                operation.Finished.Store(1)
+            Finally
+                operation.KeepAlive = Nil
+            End Try
+        End Sub
+    #End If
+End Class
+
+#If TargetMac Then
+    Private Sub CompleteNativeWrapper(context As Ptr, outcome As Int32, code As Integer, message As Ptr)
+        NotificationRequest.AcceptNativeCompletion(context, outcome, code, message)
+    End Sub
+#End If
