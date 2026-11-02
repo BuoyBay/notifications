@@ -49,9 +49,3 @@ with `@rpath/libbuoy_notifications.dylib` install name. Buoy copies it into app
 Frameworks automatically; no private Apple APIs or external notification tools
 are used. Rebuild for your distribution/signing workflow rather than treating the
 checked artifact as a code-signing identity.
-
-## Verification
-
-
-Maintainers run the private validation suite before release. See the repository README for public build instructions.
-
