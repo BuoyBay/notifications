@@ -2,7 +2,7 @@
   "schema": 1,
   "name": "notifications",
   "version": "0.1.0",
-  "description": "Explicit macOS notification authorization, scheduling and cancellation",
+  "description": "Authorize and schedule macOS local notifications",
   "platforms": [
     "arm64-apple-macos",
     "x86_64-apple-macos"
