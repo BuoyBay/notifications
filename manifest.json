@@ -1,16 +1,16 @@
 {
-  "schema": 1,
-  "name": "notifications",
-  "version": "0.1.0",
-  "description": "Authorize and schedule macOS local notifications",
-  "platforms": [
-    "arm64-apple-macos",
-    "x86_64-apple-macos"
-  ],
-  "libraries": [
-    {
-      "libName": "buoy_notifications",
-      "system": false
-    }
-  ]
+    "schema": 1,
+    "name": "notifications",
+    "version": "0.1.0",
+    "description": "macOS local notifications \u2014 authorize and schedule",
+    "platforms": [
+        "arm64-apple-macos",
+        "x86_64-apple-macos"
+    ],
+    "libraries": [
+        {
+            "libName": "buoy_notifications",
+            "system": false
+        }
+    ]
 }

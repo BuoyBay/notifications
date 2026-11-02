@@ -1,4 +1,4 @@
-# Authorize and schedule macOS local notifications
+# macOS local notifications — authorize and schedule
 
 Explicit macOS local notification integration using UserNotifications. `Import
 notifications`. Importing, checking support and reading authorization never ask
@@ -27,7 +27,7 @@ consumer project for reproducible installs.
 
 ## Example
 
-```buoy
+```basic
 Import notifications
 
 Function BeginAuthorizationRead() As NotificationRequest
