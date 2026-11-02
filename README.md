@@ -1,4 +1,4 @@
-# macOS local notifications — authorize and schedule
+# Schedule macOS notifications
 
 Explicit macOS local notification integration using UserNotifications. `Import
 notifications`. Importing, checking support and reading authorization never ask
